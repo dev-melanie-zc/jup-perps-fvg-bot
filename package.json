@@ -1,0 +1,7 @@
+{
+  "name": "jup-perps-fvg",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "set -a && . ./.env && set +a && python3 server.py"
+  }
+}

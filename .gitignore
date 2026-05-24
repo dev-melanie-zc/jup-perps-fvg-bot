@@ -1,0 +1,8 @@
+config.json
+trade_state.json
+analysis_log.jsonl
+alerts.txt
+server.log
+__pycache__/
+*.pyc
+.env

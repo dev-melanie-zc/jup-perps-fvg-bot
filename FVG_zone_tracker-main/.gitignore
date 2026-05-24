@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+reference.txt
+
+# Claude
+.claude/
+
+# Node
+terminal-ui/node_modules/
+terminal-ui/dist/
+terminal-ui/*.local
+
+# OS
+.DS_Store

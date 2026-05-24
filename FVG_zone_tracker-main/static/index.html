@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FVG Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+/* ── Reset & base ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #1c1d22;
+  --surface: #22232a;
+  --surface2:#28292f;
+  --inset:   #17181c;
+  --sh-d:    rgba(0,0,0,0.6);
+  --sh-l:    rgba(255,255,255,0.028);
+  --border:  #2a2b34;
+  --border2: #33343f;
+  --green:   #6b9c87;
+  --green2:  rgba(107,156,135,0.07);
+  --green3:  rgba(107,156,135,0.15);
+  --red:     #c06878;
+  --red2:    rgba(192,104,120,0.08);
+  --blue:    #6a7a8e;
+  --blue2:   rgba(106,122,142,0.10);
+  --text:    #8a8d9e;
+  --muted:   #4e5060;
+  --dim:     #1f2027;
+  --font:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+html, body {
+  height: 100%; width: 100%; overflow: hidden;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font); font-size: 12px;
+}
+
+button { font-family: var(--font); cursor: default; border: none; background: none; color: inherit; }
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--inset); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+* { scrollbar-width: thin; scrollbar-color: var(--border2) var(--inset); }
+
+/* ── Layout shell ──────────────────────────────────────────── */
+#app { display: flex; flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; background: var(--bg); }
+
+/* ── Loading overlay ───────────────────────────────────────── */
+#loading {
+  position: fixed; inset: 0; background: rgba(28,29,34,.97);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  z-index: 9999; gap: 12px;
+}
+#loading-title { color: var(--green); font-size: 13px; letter-spacing: 3px; font-weight: 400; }
+#loading-bar-wrap {
+  width: 280px; height: 3px; border-radius: 2px;
+  background: var(--inset);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+}
+#loading-bar { height: 3px; width: 0%; background: var(--green); border-radius: 2px; transition: width .3s; }
+#loading-msg { color: var(--muted); font-size: 10px; letter-spacing: 1.5px; }
+
+/* ── Menu bar ──────────────────────────────────────────────── */
+#menubar {
+  display: flex; align-items: center; height: 30px;
+  background: var(--surface);
+  box-shadow: 0 2px 6px var(--sh-d), 0 1px 0 var(--sh-l);
+  padding: 0 6px; flex-shrink: 0; user-select: none; z-index: 10;
+}
+.menu-item {
+  padding: 0 10px; height: 30px; line-height: 30px;
+  font-size: 11px; font-weight: 400; color: var(--muted);
+  border-radius: 4px;
+  transition: color .15s, background .15s;
+}
+.menu-item:hover { color: var(--text); background: var(--surface2); }
+#menubar-right {
+  margin-left: auto; display: flex; align-items: center; gap: 12px;
+  padding-right: 8px; font-size: 10px; color: var(--muted);
+}
+#conn-indicator { display: flex; align-items: center; gap: 5px; }
+#conn-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--red); box-shadow: 0 0 4px var(--red);
+  transition: background .3s, box-shadow .3s;
+}
+#conn-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); }
+#conn-label { color: var(--muted); letter-spacing: 1px; font-size: 10px; }
+
+/* ── Ticker bar ────────────────────────────────────────────── */
+#tickerbar {
+  display: flex; align-items: center; height: 36px;
+  background: var(--surface);
+  box-shadow: 0 2px 6px var(--sh-d), inset 0 -1px 0 var(--border);
+  padding: 0 10px; flex-shrink: 0; user-select: none; gap: 2px;
+}
+.sym-btn {
+  padding: 0 12px; height: 28px; line-height: 28px;
+  font-size: 11px; font-weight: 400; letter-spacing: .3px;
+  color: var(--muted); border-radius: 6px;
+  border: 1px solid transparent;
+  transition: all .18s;
+}
+.sym-btn.active {
+  color: var(--blue); background: var(--blue2);
+  border-color: rgba(106,122,142,0.22);
+  box-shadow: inset 1px 1px 3px rgba(0,0,0,0.3), inset -1px -1px 2px rgba(255,255,255,0.03);
+}
+.sym-btn:hover:not(.active) { color: var(--text); background: var(--surface2); }
+#ticker-divider { width: 1px; height: 16px; background: var(--border); margin: 0 12px; }
+#price-display { font-size: 18px; font-weight: 400; color: var(--green); letter-spacing: .3px; min-width: 110px; }
+#price-unit { font-size: 10px; color: var(--muted); margin-left: 4px; font-weight: 400; }
+#tickerbar-right { margin-left: auto; display: flex; align-items: center; gap: 18px; font-size: 10px; color: var(--muted); }
+#clock { color: var(--green); opacity: .6; letter-spacing: 1px; font-weight: 400; }
+
+/* ── Main area ─────────────────────────────────────────────── */
+#main { display: flex; flex: 1; min-height: 0; overflow: hidden; background: var(--bg); }
+
+/* ── Chart column ──────────────────────────────────────────── */
+#chart-col {
+  display: flex; flex-direction: column; flex: 1; min-width: 0;
+  border-right: 1px solid var(--border);
+}
+
+/* Chart sub-header */
+#chart-header {
+  display: flex; align-items: center; height: 32px;
+  background: var(--surface);
+  box-shadow: 0 1px 4px var(--sh-d), inset 0 -1px 0 var(--border);
+  padding: 0 10px; flex-shrink: 0; gap: 8px;
+}
+#chart-header-label { font-size: 10px; font-weight: 400; color: var(--muted); letter-spacing: 1px; }
+#chart-sym-label { font-size: 10px; color: var(--green); opacity: .8; font-weight: 400; }
+
+.tf-tabs { display: flex; gap: 3px; margin-left: 10px; }
+.tf-btn {
+  padding: 2px 9px; font-size: 10px; font-weight: 400; letter-spacing: .3px;
+  color: var(--muted); border-radius: 5px;
+  border: 1px solid transparent;
+  transition: all .15s;
+}
+.tf-btn.active {
+  color: var(--green); border-color: rgba(107,156,135,0.3); background: var(--green2);
+  box-shadow: inset 1px 1px 3px rgba(0,0,0,0.3), inset -1px -1px 2px rgba(255,255,255,0.03);
+}
+.tf-btn:hover:not(.active) { color: var(--text); background: var(--surface2); }
+
+#chart-header-right { margin-left: auto; display: flex; gap: 5px; align-items: center; }
+.chart-badge {
+  font-size: 9px; font-weight: 400; padding: 2px 7px; border-radius: 4px;
+  border: 1px solid var(--border2); color: var(--muted); letter-spacing: .3px;
+  box-shadow: -1px -1px 2px var(--sh-l), 1px 1px 4px var(--sh-d);
+}
+.chart-badge.active-badge {
+  border-color: rgba(107,156,135,0.3); color: var(--green); background: var(--green2);
+  box-shadow: inset 1px 1px 2px rgba(0,0,0,0.25);
+}
+
+/* Chart mount — slightly brighter than surrounding panels */
+#chart-mount {
+  flex: 1; min-height: 0; background: #27282f; position: relative; overflow: hidden;
+  box-shadow: inset 2px 2px 8px rgba(0,0,0,0.35), inset -1px -1px 2px rgba(0,0,0,0.15);
+}
+
+/* ── FVG list (bottom) ─────────────────────────────────────── */
+#fvg-list-wrap {
+  flex-shrink: 0; max-height: 30vh;
+  background: #17181e;
+  box-shadow: 0 -2px 6px var(--sh-d);
+  display: flex; flex-direction: column;
+}
+#fvg-list-header {
+  display: flex; align-items: center; gap: 8px; height: 26px;
+  padding: 0 10px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px; font-weight: 400; color: var(--muted); letter-spacing: 1px;
+}
+#fvg-open-count { color: var(--green); }
+#fvg-filled-count { opacity: .4; }
+#fvg-list-legend { margin-left: auto; opacity: .3; font-size: 9px; font-weight: 400; }
+#fvg-list-body { overflow-y: auto; flex: 1; }
+
+.fvg-row {
+  display: flex; align-items: center; gap: 0;
+  height: 24px; padding: 0 10px;
+  border-bottom: 1px solid rgba(30,45,66,0.5);
+  font-size: 10px; transition: background .12s;
+}
+.fvg-row:hover { background: var(--dim); }
+.fvg-row.bull-row { background: rgba(107,156,135,0.03); }
+.fvg-row.bear-row { background: rgba(192,104,120,0.03); }
+.fvg-row.filled-row { opacity: .32; }
+
+.row-tf { width: 32px; color: var(--muted); flex-shrink: 0; opacity: .7; font-size: 9px; }
+.row-arrow { width: 12px; font-size: 10px; flex-shrink: 0; margin-right: 3px; }
+.row-arrow.bull { color: var(--green); }
+.row-arrow.bear { color: var(--red); }
+.row-label { flex: 1; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
+.row-range { color: inherit; font-weight: 400; }
+.row-range.bull { color: var(--green); }
+.row-range.bear { color: var(--red); }
+.row-meta { color: var(--muted); opacity: .6; margin-left: 6px; font-weight: 400; }
+.row-badge {
+  flex-shrink: 0; margin-left: 8px; padding: 1px 7px; height: 16px; line-height: 14px;
+  font-size: 9px; font-weight: 400; letter-spacing: .4px;
+  border-radius: 4px; border: 1px solid;
+  box-shadow: -1px -1px 2px var(--sh-l), 1px 1px 3px var(--sh-d);
+}
+.row-badge.long-badge  { border-color: rgba(107,156,135,0.35); color: var(--green); background: var(--green2); }
+.row-badge.short-badge { border-color: rgba(192,104,120,0.35);  color: var(--red);   background: var(--red2); }
+.row-badge.filled-badge { border-color: var(--border2); color: var(--muted); }
+
+/* ── Sidebar ───────────────────────────────────────────────── */
+#sidebar {
+  width: 200px; flex-shrink: 0; display: flex; flex-direction: column;
+  background: #17181e; overflow: hidden;
+  box-shadow: -2px 0 8px var(--sh-d);
+}
+#sidebar-header {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 32px; padding: 0 10px;
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+#sidebar-title { font-size: 10px; font-weight: 400; color: var(--muted); letter-spacing: 2px; }
+#sidebar-count { font-size: 10px; color: var(--green); opacity: .8; font-weight: 400; }
+#sidebar-body { flex: 1; overflow-y: auto; padding: 6px; }
+
+.sb-tf-label {
+  font-size: 9px; color: var(--muted); letter-spacing: 1px;
+  padding: 10px 2px 4px; opacity: .4; text-transform: uppercase;
+}
+.sb-zone {
+  padding: 12px 14px; margin-bottom: 6px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.07);
+  box-shadow: -1px -1px 3px var(--sh-l), 2px 2px 7px var(--sh-d);
+  transition: opacity .2s;
+}
+.sb-zone.muted { opacity: 0.38; }
+.sb-zone.bull.active-zone { border-color: rgba(107,156,135,0.3); background: rgba(107,156,135,0.06); }
+.sb-zone.bear.active-zone { border-color: rgba(192,104,120,0.3); background: rgba(192,104,120,0.06); }
+
+.sb-zone-title {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  margin-bottom: 5px;
+}
+.sb-zone.bull .sb-zone-title { color: var(--green); }
+.sb-zone.bear .sb-zone-title { color: var(--red); }
+
+.sb-zone-price {
+  font-size: 13px; font-weight: 500; color: var(--text);
+  margin-bottom: 4px; letter-spacing: .01em;
+}
+.sb-zone-meta {
+  font-size: 10px; color: var(--muted); opacity: 0.55;
+}
+
+#sidebar-footer {
+  height: 24px; padding: 0 10px;
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; flex-shrink: 0;
+  font-size: 9px; color: var(--muted); opacity: .4;
+}
+
+/* ── Bottom panel tabs ─────────────────────────────────────────── */
+.bottom-tab {
+  padding: 0 8px; height: 26px; font-size: 10px; font-weight: 400;
+  letter-spacing: 1px; color: var(--muted); background: none;
+  border: none; border-bottom: 2px solid transparent;
+  transition: color .15s, border-color .15s;
+}
+.bottom-tab.active { color: var(--green); border-bottom-color: var(--green); }
+.bottom-tab:hover:not(.active) { color: var(--text); }
+
+/* ── Alert log rows ────────────────────────────────────────────── */
+#alert-log-body { overflow-y: auto; flex: 1; }
+.alert-row {
+  display: flex; align-items: center; gap: 8px;
+  height: 24px; padding: 0 10px;
+  border-bottom: 1px solid rgba(30,45,66,0.5);
+  font-size: 10px; transition: background .12s;
+}
+.alert-row:hover { background: var(--dim); }
+.alert-row.bull-alert { background: rgba(107,156,135,0.03); }
+.alert-row.bear-alert { background: rgba(192,104,120,0.03); }
+.alert-arrow { font-size: 10px; flex-shrink: 0; }
+.alert-arrow.bull { color: var(--green); }
+.alert-arrow.bear { color: var(--red); }
+.alert-action { font-size: 10px; font-weight: 500; flex-shrink: 0; min-width: 76px; }
+.alert-action.bull { color: var(--green); }
+.alert-action.bear { color: var(--red); }
+.alert-info { color: var(--muted); font-size: 9px; opacity: .7; flex: 1; }
+.alert-range { font-size: 9px; color: var(--text); opacity: .55; flex-shrink: 0; }
+.alert-filled { color: var(--muted); font-size: 9px; opacity: .45; font-style: italic; flex-shrink: 0; }
+
+/* ── Mobile ────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  #tickerbar { height: 40px; padding: 0 8px; gap: 3px; }
+  .sym-btn { padding: 0 7px; font-size: 10px; height: 26px; line-height: 26px; }
+  #ticker-divider { margin: 0 6px; }
+  #price-display { font-size: 14px; min-width: 70px; }
+  #price-unit { font-size: 9px; }
+  #tickerbar-right { gap: 8px; }
+  #clock { font-size: 9px; }
+
+  #main { flex-direction: column; }
+
+  #chart-col { flex: none; border-right: none; }
+
+  #chart-header { padding: 0 6px; gap: 4px; overflow-x: auto; }
+  #chart-header-label { display: none; }
+  #chart-sym-label { display: none; }
+  .tf-tabs { overflow-x: auto; gap: 2px; }
+  .tf-btn { padding: 2px 7px; font-size: 9px; }
+  #chart-header-right { display: none; }
+
+  #chart-mount { height: 40vh; flex: none; }
+
+  #fvg-list-wrap { max-height: 22vh; }
+  #fvg-list-legend { display: none; }
+  .fvg-row { height: 22px; font-size: 9px; }
+  .row-meta { display: none; }
+
+  #sidebar {
+    width: 100%; flex: 1; min-height: 100px;
+    box-shadow: 0 -2px 6px var(--sh-d);
+    border-top: 1px solid var(--border);
+  }
+  #sidebar-body {
+    display: flex; flex-direction: row;
+    overflow-x: auto; overflow-y: hidden;
+    padding: 6px 8px; gap: 8px; align-items: flex-start;
+  }
+  .sb-tf-label { display: none; }
+  .sb-zone { flex-shrink: 0; width: 120px; padding: 8px 10px; margin-bottom: 0; }
+  .sb-zone-price { font-size: 11px; }
+  .sb-zone-title { font-size: 9px; margin-bottom: 3px; }
+  .sb-zone-meta { font-size: 8px; }
+  #sidebar-footer { display: none; }
+
+  .alert-row { height: 28px; flex-wrap: wrap; gap: 4px; }
+  .alert-info { font-size: 8px; }
+  .alert-range { font-size: 8px; }
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- Loading overlay -->
+  <div id="loading">
+    <div id="loading-title">FVG TERMINAL</div>
+    <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+    <div id="loading-msg">CONNECTING TO PHEMEX...</div>
+  </div>
+
+  <!-- Ticker bar -->
+  <div id="tickerbar">
+    <button class="sym-btn active" data-sym="ETH/USDT:USDT">ETHUSDT</button>
+    <button class="sym-btn"       data-sym="BTC/USDT:USDT">BTCUSDT</button>
+    <button class="sym-btn"       data-sym="SOL/USDT:USDT">SOLUSDT</button>
+    <button class="sym-btn" id="info-btn">INFO</button>
+    <div id="ticker-divider"></div>
+    <span id="price-display">——</span>
+    <span id="price-unit">USDT</span>
+    <div id="tickerbar-right">
+      <span>MST/MDT · Alberta</span>
+      <span id="clock">——:——:——</span>
+      <div id="conn-indicator">
+        <div id="conn-dot"></div>
+        <span id="conn-label">OFFLINE</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main area -->
+  <div id="main">
+
+    <!-- Chart column -->
+    <div id="chart-col">
+      <div id="chart-header">
+        <span id="chart-header-label">CHART</span>
+        <span style="color:var(--muted);opacity:.3">│</span>
+        <span id="chart-sym-label">——</span>
+        <div class="tf-tabs" id="tf-tabs">
+          <!-- populated by JS -->
+        </div>
+        <div id="chart-header-right">
+          <span class="chart-badge active-badge">FVG</span>
+          <span class="chart-badge">EMA</span>
+          <span class="chart-badge">VOL</span>
+          <span id="open-fvg-count" class="chart-badge active-badge" style="display:none"></span>
+        </div>
+      </div>
+      <div id="chart-mount"></div>
+
+      <!-- FVG list / Alerts bottom panel -->
+      <div id="fvg-list-wrap">
+        <div id="fvg-list-header">
+          <button class="bottom-tab active" id="tab-fvglog">FVG LOG</button>
+          <button class="bottom-tab" id="tab-alerts">ALERTS</button>
+          <span style="opacity:.3;margin:0 4px">──</span>
+          <span id="fvg-open-count">0 open</span>
+          <span id="fvg-filled-count">0 filled</span>
+          <span id="fvg-list-legend">[TF] ▲/▼ Type (Zone) · Range · Timestamp</span>
+        </div>
+        <div id="fvg-list-body"></div>
+        <div id="alert-log-body" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div id="sidebar-header">
+        <span id="sidebar-title">OPEN ZONES</span>
+        <span id="sidebar-count">0 active</span>
+      </div>
+      <div id="sidebar-body"></div>
+      <div id="sidebar-footer" id="sb-footer">0 filled</div>
+    </div>
+
+  </div>
+
+  <!-- Info panel -->
+  <div id="info-panel" style="display:none; flex:1; align-items:center; justify-content:center; background:var(--bg);">
+    <div style="
+      max-width:520px; width:90%; padding:48px 44px;
+      background:var(--surface);
+      border:1px solid var(--border2);
+      border-radius:16px;
+      box-shadow:-2px -2px 6px var(--sh-l), 4px 4px 16px var(--sh-d);
+      text-align:center;
+    ">
+      <div style="font-size:11px;letter-spacing:3px;color:var(--green);margin-bottom:24px;opacity:.8">FVG TERMINAL</div>
+      <div style="font-size:22px;font-weight:500;color:var(--text);margin-bottom:6px;letter-spacing:.02em">Created by Melanie Zoe</div>
+      <div style="width:40px;height:1px;background:var(--border2);margin:18px auto;"></div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.8;margin-bottom:20px;">
+        This tool detects <span style="color:var(--text)">Fair Value Gaps (FVGs)</span> across multiple timeframes
+        on crypto perpetual futures — ETH, BTC, and SOL — using live data from Phemex.
+      </div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.7;margin-bottom:28px;opacity:.7;">
+        Zone signals highlight potential discount (long) and premium (short) setups
+        based on ICT/SMC market structure principles.
+      </div>
+      <div style="
+        font-size:10px;letter-spacing:1px;color:var(--muted);
+        padding:12px 18px;
+        background:var(--inset);
+        border-radius:8px;
+        border:1px solid var(--border);
+        box-shadow:inset 1px 1px 4px rgba(0,0,0,0.4);
+        opacity:.7;
+      ">
+        FOR RESEARCH &amp; EDUCATIONAL PURPOSES ONLY<br>
+        NOT FINANCIAL ADVICE — TRADE AT YOUR OWN RISK
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────
+let chart        = null
+let candles      = null
+let fvgPrimitive = null
+let activeSym    = 'ETH/USDT:USDT'
+let priorTf      = null
+let hoverTimer   = null
+let activeTf    = '15m'
+let serverState = {}
+let serverPrices= {}
+let serverTfs   = []
+
+// ── Clock ─────────────────────────────────────────────────────────────────
+function tickClock() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('en-CA', { hour12: false })
+}
+tickClock()
+setInterval(tickClock, 1000)
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function symShort(sym) { return sym.split('/')[0] }
+
+function fmtP(sym, val) {
+  if (val == null || val === 0) return '——'
+  const dec = sym.includes('BTC') ? 1 : 2
+  return val.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+}
+
+function tfUp(tf) { return tf.toUpperCase() }
+
+// Parse naive local ISO string → Unix seconds (using browser local time)
+function toUnix(isoStr) {
+  if (!isoStr) return 0
+  const [date, time='00:00:00'] = isoStr.split('T')
+  const [y,m,d] = date.split('-').map(Number)
+  const [h,mn,s] = time.split(':').map(Number)
+  return Math.floor(new Date(y, m-1, d, h, mn, s).getTime() / 1000)
+}
+
+// ── FVG Rectangle Primitive ───────────────────────────────────────────────
+class FvgZonesPrimitive {
+  constructor(chart) {
+    this._chart  = chart
+    this._zones  = []
+    this._series = null
+    this._reqUpd = null
+  }
+
+  setZones(zones) {
+    this._zones = zones
+    if (this._reqUpd) this._reqUpd()
+  }
+
+  setHighlight(zone) {
+    this._highlight = zone || null
+    if (this._reqUpd) this._reqUpd()
+  }
+
+  attached({ series, requestUpdate }) {
+    this._series  = series
+    this._reqUpd  = requestUpdate
+    this._highlight = null
+  }
+
+  detached() { this._series = null; this._reqUpd = null }
+  updateAllViews() {}
+
+  paneViews() {
+    const series = this._series
+    const chart  = this._chart
+    const zones  = this._zones
+    if (!series || !chart) return []
+
+    return [{
+      renderer: () => ({
+        draw: (target) => {
+          const ts = chart.timeScale()
+          const hl = this._highlight
+          target.useMediaCoordinateSpace(({ context: ctx, mediaSize }) => {
+            zones.forEach(z => {
+              const yTop = series.priceToCoordinate(z.high)
+              const yBot = series.priceToCoordinate(z.low)
+              if (yTop === null || yBot === null) return
+
+              const isBull   = z.type === 'bull'
+              const isFilled = !!z.filled
+              const rgb      = isBull ? '107,156,135' : '192,104,120'
+              const isHL     = hl && z.formed_at === hl.formed_at && z.type === hl.type
+              const fillA    = hl
+                ? (isHL ? (isFilled ? 0.18 : 0.38) : 0.025)
+                : (isFilled ? 0.06 : 0.22)
+
+              // x0: 2 candles before formed_at — where the gap actually sits
+              let x0 = 0
+              if (z.formed_at) {
+                const gapStart = toUnix(z.formed_at) - 2 * (z._period || 900)
+                const c = ts.timeToCoordinate(gapStart)
+                if (c !== null) x0 = Math.max(0, c)
+              }
+
+              // x1: filled time or extend to right edge for open zones
+              let x1 = mediaSize.width
+              if (isFilled && z.filled_at) {
+                const c = ts.timeToCoordinate(toUnix(z.filled_at))
+                if (c !== null) x1 = Math.min(c, mediaSize.width)
+              } else if (z.x1) {
+                const c = ts.timeToCoordinate(toUnix(z.x1))
+                if (c !== null && c > x0) x1 = Math.min(c, mediaSize.width)
+              }
+
+              const top = Math.min(yTop, yBot)
+              const ht  = Math.abs(yTop - yBot)
+              const wd  = Math.max(0, x1 - x0)
+              if (wd < 2 || ht < 1) return
+
+              ctx.save()
+
+              // Fill
+              ctx.fillStyle = `rgba(${rgb},${fillA})`
+              ctx.fillRect(x0, top, wd, ht)
+
+              // Zone border
+              if (!isFilled) {
+                ctx.strokeStyle = isHL ? `rgba(${rgb},0.85)` : `rgba(${rgb},0.45)`
+                ctx.lineWidth   = isHL ? 1.5 : 1
+                ctx.setLineDash([])
+                ctx.strokeRect(x0 + 0.5, top + 0.5, wd - 1, ht - 1)
+              }
+
+              // Zone label
+              if (ht > 4) {
+                ctx.save()
+                ctx.setLineDash([])
+                const drawInside = ht >= 14
+                const fontSize   = drawInside ? Math.max(7, Math.min(10, ht * 0.62)) : 9
+
+                ctx.font = `${isHL ? '500' : '400'} ${fontSize}px "Inter", -apple-system, sans-serif`
+
+                if (drawInside) {
+                  // Clip to rectangle and draw centred inside
+                  ctx.beginPath()
+                  ctx.rect(x0, top, wd, ht)
+                  ctx.clip()
+                  ctx.textBaseline = 'middle'
+                  if (isFilled) {
+                    ctx.fillStyle = hl ? (isHL ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.10)') : 'rgba(255,255,255,0.32)'
+                    ctx.fillText('Filled', x0 + 8, top + ht / 2)
+                  } else {
+                    ctx.fillStyle = hl ? (isHL ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.15)') : 'rgba(255,255,255,0.88)'
+                    const label = isBull ? 'Bullish Unmitigated Zone / Unfilled' : 'Bearish Unmitigated Zone / Unfilled'
+                    ctx.fillText(label, x0 + 8, top + ht / 2)
+                  }
+                } else {
+                  // Too small — draw above the rectangle, no clip
+                  ctx.textBaseline = 'bottom'
+                  if (isFilled) {
+                    ctx.fillStyle = hl ? (isHL ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.10)') : 'rgba(255,255,255,0.32)'
+                    ctx.fillText('Filled', x0 + 4, top - 3)
+                  } else {
+                    ctx.fillStyle = hl ? (isHL ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.15)') : 'rgba(255,255,255,0.88)'
+                    const label = isBull ? 'Bullish Unmitigated Zone / Unfilled' : 'Bearish Unmitigated Zone / Unfilled'
+                    ctx.fillText(label, x0 + 4, top - 3)
+                  }
+                }
+                ctx.restore()
+              }
+
+              ctx.restore()
+            })
+          })
+        }
+      })
+    }]
+  }
+}
+
+// ── Lightweight-charts init ────────────────────────────────────────────────
+function initChart() {
+  const mount = document.getElementById('chart-mount')
+  chart = LightweightCharts.createChart(mount, {
+    layout: {
+      background:  { color: '#27282f' },
+      textColor:   '#4e6070',
+      fontFamily:  "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      fontSize:    10,
+    },
+    grid: {
+      vertLines: { color: 'rgba(255,255,255,0.022)' },
+      horzLines: { color: 'rgba(255,255,255,0.022)' },
+    },
+    crosshair: {
+      vertLine: { color: '#6b9c87', width: 1,
+                  style: LightweightCharts.LineStyle.Dashed,
+                  labelBackgroundColor: '#22232a' },
+      horzLine: { color: '#6b9c87', width: 1,
+                  style: LightweightCharts.LineStyle.Dashed,
+                  labelBackgroundColor: '#22232a' },
+    },
+    rightPriceScale: {
+      borderColor:  '#2a2b34',
+      textColor:    '#4e6070',
+      scaleMargins: { top: 0.08, bottom: 0.08 },
+    },
+    timeScale: {
+      borderColor:    '#2a2b34',
+      textColor:      '#4e6070',
+      timeVisible:    true,
+      secondsVisible: false,
+    },
+    handleScroll: true,
+    handleScale:  true,
+    width:  mount.clientWidth,
+    height: mount.clientHeight,
+  })
+
+  candles = chart.addCandlestickSeries({
+    upColor:         '#2e9158',
+    downColor:       '#c4607a',
+    borderUpColor:   '#35a664',
+    borderDownColor: '#d4607a',
+    wickUpColor:     '#35a664',
+    wickDownColor:   '#d4607a',
+    priceLineVisible:  true,
+    priceLineWidth:    2,
+    priceLineColor:    '#8a8d9e',
+    priceLineStyle:    LightweightCharts.LineStyle.Solid,
+    lastValueVisible:  true,
+  })
+
+  fvgPrimitive = new FvgZonesPrimitive(chart)
+  candles.attachPrimitive(fvgPrimitive)
+
+  new ResizeObserver(() => {
+    chart.applyOptions({ width: mount.clientWidth, height: mount.clientHeight })
+  }).observe(mount)
+
+  // Cover the TradingView attribution logo
+  const logoCover = document.createElement('div')
+  logoCover.style.cssText =
+    'position:absolute;bottom:0;right:0;width:150px;height:32px;' +
+    'background:#27282f;z-index:9999;pointer-events:none'
+  mount.appendChild(logoCover)
+}
+
+// ── Render chart data ─────────────────────────────────────────────────────
+function renderChart() {
+  if (!chart || !candles) return
+  const tfData = serverState[activeSym]?.[activeTf]
+  if (!tfData) return
+
+  // Candles
+  const rows = (tfData.candles || []).map(c => ({
+    time: toUnix(c.t), open: c.o, high: c.h, low: c.l, close: c.c
+  })).filter(c => c.time > 0)
+  candles.setData(rows)
+  chart.timeScale().fitContent()
+
+  // Update chart sym label
+  document.getElementById('chart-sym-label').textContent =
+    `${symShort(activeSym)}USDT · ${tfUp(activeTf)} · Phemex`
+
+  // Update open FVG badge
+  const openN = (tfData.fvgs || []).filter(z => !z.filled).length
+  const badge = document.getElementById('open-fvg-count')
+  if (openN > 0) {
+    badge.textContent = `${openN} FVG${openN !== 1 ? 's' : ''}`
+    badge.style.display = ''
+  } else {
+    badge.style.display = 'none'
+  }
+
+  // Draw FVG zones as rectangles
+  const period = TF_SECS[activeTf] || 900
+  fvgPrimitive.setZones((tfData.fvgs || []).map(z => ({ ...z, _period: period })))
+}
+
+// ── Build timeframe tabs ──────────────────────────────────────────────────
+function buildTfTabs() {
+  const wrap = document.getElementById('tf-tabs')
+  wrap.innerHTML = ''
+  serverTfs.forEach(tf => {
+    const btn = document.createElement('button')
+    btn.className = 'tf-btn' + (tf === activeTf ? ' active' : '')
+    btn.textContent = tfUp(tf)
+    btn.dataset.tf  = tf
+    btn.addEventListener('click', () => {
+      activeTf = tf
+      document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      renderChart()
+      renderFvgList()
+    })
+    wrap.appendChild(btn)
+  })
+}
+
+// ── FVG row hover handlers ────────────────────────────────────────────────
+function onFvgRowEnter(z) {
+  clearTimeout(hoverTimer)
+  hoverTimer = setTimeout(() => {
+    if (z._tf && z._tf !== activeTf) {
+      priorTf  = activeTf
+      activeTf = z._tf
+      document.querySelectorAll('.tf-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.tf === activeTf))
+      renderChart()
+    }
+    fvgPrimitive.setHighlight(z)
+  }, 80)
+}
+
+function onFvgRowLeave() {
+  clearTimeout(hoverTimer)
+  if (priorTf !== null) {
+    activeTf = priorTf
+    priorTf  = null
+    document.querySelectorAll('.tf-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.tf === activeTf))
+    renderChart()
+  }
+  fvgPrimitive.setHighlight(null)
+}
+
+// ── Render FVG list (bottom panel) ───────────────────────────────────────
+function renderFvgList() {
+  const allFvgs = []
+  const d = serverState[activeSym]?.[activeTf]
+  if (d) (d.fvgs || []).forEach(z => allFvgs.push({ ...z, _tf: activeTf }))
+
+  // Sort: open first, then filled
+  const sorted = allFvgs.sort((a, b) => {
+    if (a.filled !== b.filled) return a.filled ? 1 : -1
+    return 0
+  })
+
+  const openN   = sorted.filter(z => !z.filled).length
+  const filledN = sorted.filter(z =>  z.filled).length
+  document.getElementById('fvg-open-count').textContent   = `${openN} open`
+  document.getElementById('fvg-filled-count').textContent = `${filledN} filled`
+
+  const isBtc = activeSym.includes('BTC')
+  const dec   = isBtc ? 1 : 2
+
+  document.getElementById('fvg-list-body').innerHTML = sorted.map(z => {
+    const isBull = z.type === 'bull'
+    const isOpen = !z.filled
+    const tf     = z._tf || ''
+    const arrow  = isBull ? '▲' : '▼'
+    const label  = isBull ? 'Bullish FVG (DISCOUNT)' : 'Bearish FVG (PREMIUM)'
+    const lo     = z.low.toFixed(dec)
+    const hi     = z.high.toFixed(dec)
+    const rowCls = isOpen ? (isBull ? 'bull-row' : 'bear-row') : 'filled-row'
+    const arrCls = isBull ? 'bull' : 'bear'
+    const rngCls = isBull ? 'bull' : 'bear'
+    const formed = z.formed_at ? z.formed_at.slice(11,16) + ' MST' : '——'
+    const filled = z.filled_at ? ' · filled ' + z.filled_at.slice(11,16) + ' MST' : ''
+    const badge  = isOpen
+      ? (isBull
+          ? '<span class="row-badge long-badge">LONG</span>'
+          : '<span class="row-badge short-badge">SHORT</span>')
+      : '<span class="row-badge filled-badge">FILLED</span>'
+
+    return `<div class="fvg-row ${rowCls}">
+      <span class="row-tf">[${tfUp(tf)}]</span>
+      <span class="row-arrow ${arrCls}">${arrow}</span>
+      <span class="row-label">
+        ${label}&nbsp;&nbsp;<span class="row-range ${rngCls}">${lo} – ${hi}</span>
+        <span class="row-meta">· formed ${formed}${filled}</span>
+      </span>
+      ${badge}
+    </div>`
+  }).join('')
+
+  // Attach hover listeners
+  document.querySelectorAll('#fvg-list-body .fvg-row').forEach((row, i) => {
+    if (!sorted[i]) return
+    row.addEventListener('mouseenter', () => onFvgRowEnter(sorted[i]))
+    row.addEventListener('mouseleave', onFvgRowLeave)
+  })
+}
+
+// ── Render sidebar ────────────────────────────────────────────────────────
+const TF_ORDER = ['15m','4h','6h','8h','12h']
+const TF_SECS  = { '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '6h': 21600, '8h': 28800, '12h': 43200 }
+
+function renderSidebar() {
+  const isBtc = activeSym.includes('BTC')
+  const dec   = isBtc ? 1 : 2
+
+  // Gather open zones grouped by TF
+  const grouped = {}
+  serverTfs.forEach(tf => {
+    const d = serverState[activeSym]?.[tf]
+    if (!d) return
+    const open = (d.fvgs || []).filter(z => !z.filled)
+    if (open.length) grouped[tf] = open
+  })
+
+  const tfsInOrder = serverTfs.filter(tf => grouped[tf])
+  const openTotal  = tfsInOrder.reduce((n, tf) => n + grouped[tf].length, 0)
+  const fillTotal  = serverTfs.reduce((n, tf) => {
+    return n + ((serverState[activeSym]?.[tf]?.fvgs || []).filter(z => z.filled).length)
+  }, 0)
+
+  document.getElementById('sidebar-count').textContent = `${openTotal} active`
+  document.getElementById('sidebar-footer').textContent = `${fillTotal} filled`
+
+  if (!tfsInOrder.length) {
+    document.getElementById('sidebar-body').innerHTML =
+      '<p style="font-size:9px;color:var(--muted);padding:8px 6px;opacity:.5">no open zones</p>'
+    return
+  }
+
+  // Find nearest zone to current price
+  const currentPrice = serverPrices[activeSym] || 0
+  let nearestZone = null
+  if (currentPrice) {
+    let minDist = Infinity
+    tfsInOrder.forEach(tf => {
+      grouped[tf].forEach(z => {
+        const dist = Math.min(Math.abs(z.high - currentPrice), Math.abs(z.low - currentPrice))
+        if (dist < minDist) { minDist = dist; nearestZone = z }
+      })
+    })
+  }
+
+  document.getElementById('sidebar-body').innerHTML = tfsInOrder.map(tf => {
+    const zones = grouped[tf]
+    const cards = zones.map(z => {
+      const isBull   = z.type === 'bull'
+      const isNearest = nearestZone && z === nearestZone
+      const lo = z.low.toFixed(dec), hi = z.high.toFixed(dec)
+      const t  = z.formed_at ? z.formed_at.slice(11,16) + ' MST' : '——'
+      const cls = [
+        'sb-zone',
+        isBull ? 'bull' : 'bear',
+        isNearest ? 'active-zone' : 'muted',
+      ].join(' ')
+      return `<div class="${cls}">
+        <div class="sb-zone-title">${isBull ? 'Discount' : 'Premium'}</div>
+        <div class="sb-zone-price">${lo} → ${hi}</div>
+        <div class="sb-zone-meta">${tfUp(tf)} · ${t}</div>
+      </div>`
+    }).join('')
+    return `<div class="sb-tf-label">${tfUp(tf)}</div>${cards}`
+  }).join('')
+}
+
+// ── Alert state & log ─────────────────────────────────────────────────────
+let alertLog        = []        // persistent log entries
+let alertedKeys     = new Set() // zone keys we have already emitted an alert for
+let activeBottomTab = 'fvglog'  // 'fvglog' | 'alerts'
+let unreadAlerts    = 0
+
+function alertKey(sym, tf, z) {
+  return `${sym}::${tf}::${z.formed_at}::${z.type}`
+}
+
+function processAlerts(alertsFromServer) {
+  const nowStr = new Date().toLocaleTimeString('en-CA', {
+    hour12: false, hour: '2-digit', minute: '2-digit'
+  }) + ' MST'
+
+  let newCount = 0
+  Object.entries(alertsFromServer || {}).forEach(([sym, zones]) => {
+    zones.forEach(z => {
+      const key = alertKey(sym, z.tf, z)
+      if (!alertedKeys.has(key)) {
+        alertedKeys.add(key)
+        alertLog.unshift({
+          key, sym, tf: z.tf, type: z.type,
+          low: z.low, high: z.high, formed_at: z.formed_at,
+          ts: nowStr, filled: false, filledTs: null
+        })
+        newCount++
+      }
+    })
+  })
+
+  // Update fill status for existing log entries
+  alertLog.forEach(entry => {
+    if (entry.filled) return
+    const tfData = serverState[entry.sym]?.[entry.tf]
+    if (!tfData) return
+    const zone = (tfData.fvgs || []).find(z =>
+      z.formed_at === entry.formed_at && z.type === entry.type
+    )
+    if (zone?.filled) {
+      entry.filled   = true
+      entry.filledTs = zone.filled_at ? zone.filled_at.slice(11, 16) + ' MST' : nowStr
+    }
+  })
+
+  if (newCount > 0 && activeBottomTab !== 'alerts') {
+    unreadAlerts += newCount
+    updateAlertTabLabel()
+  }
+  if (activeBottomTab === 'alerts') renderAlertLog()
+}
+
+function updateAlertTabLabel() {
+  const btn = document.getElementById('tab-alerts')
+  if (!btn) return
+  btn.textContent = unreadAlerts > 0 ? `ALERTS (${unreadAlerts})` : 'ALERTS'
+}
+
+function renderAlertLog() {
+  const body = document.getElementById('alert-log-body')
+  if (!body) return
+  if (!alertLog.length) {
+    body.innerHTML =
+      '<p style="font-size:9px;color:var(--muted);padding:8px 10px;opacity:.5">' +
+      'no alerts yet — waiting for price to enter a zone</p>'
+    return
+  }
+  body.innerHTML = alertLog.map(entry => {
+    const isBull  = entry.type === 'bull'
+    const arrow   = isBull ? '▲' : '▼'
+    const action  = isBull ? 'LONG NOW' : 'SHORT NOW'
+    const rowCls  = isBull ? 'bull-alert' : 'bear-alert'
+    const arrCls  = isBull ? 'bull' : 'bear'
+    const sym     = symShort(entry.sym)
+    const dec     = entry.sym.includes('BTC') ? 1 : 2
+    const lo      = entry.low.toFixed(dec)
+    const hi      = entry.high.toFixed(dec)
+    const filled  = entry.filled
+      ? `<span class="alert-filled">/ Filled ${entry.filledTs}</span>`
+      : ''
+    return `<div class="alert-row ${rowCls}">
+      <span class="alert-arrow ${arrCls}">${arrow}</span>
+      <span class="alert-action ${arrCls}">${action}</span>
+      <span class="alert-info">${sym} · ${entry.tf.toUpperCase()} · ${entry.ts}</span>
+      <span class="alert-range">${lo} – ${hi}</span>
+      ${filled}
+    </div>`
+  }).join('')
+}
+
+function switchBottomTab(tab) {
+  activeBottomTab = tab
+  const fvgBody   = document.getElementById('fvg-list-body')
+  const alertBody = document.getElementById('alert-log-body')
+  const legend    = document.getElementById('fvg-list-legend')
+  const openCount = document.getElementById('fvg-open-count')
+  const fillCount = document.getElementById('fvg-filled-count')
+  document.querySelectorAll('.bottom-tab').forEach(b => b.classList.remove('active'))
+  if (tab === 'fvglog') {
+    document.getElementById('tab-fvglog').classList.add('active')
+    fvgBody.style.display   = ''
+    alertBody.style.display = 'none'
+    legend.style.display    = ''
+    openCount.style.display = ''
+    fillCount.style.display = ''
+  } else {
+    document.getElementById('tab-alerts').classList.add('active')
+    fvgBody.style.display   = 'none'
+    alertBody.style.display = ''
+    legend.style.display    = 'none'
+    openCount.style.display = 'none'
+    fillCount.style.display = 'none'
+    unreadAlerts = 0
+    updateAlertTabLabel()
+    renderAlertLog()
+  }
+}
+
+// ── Full render ───────────────────────────────────────────────────────────
+function renderAll() {
+  const p = serverPrices[activeSym]
+  document.getElementById('price-display').textContent =
+    p ? fmtP(activeSym, p) : '——'
+
+  renderChart()
+  renderFvgList()
+  renderSidebar()
+}
+
+// ── Bottom tab wiring ─────────────────────────────────────────────────────
+document.getElementById('tab-fvglog').addEventListener('click', () => switchBottomTab('fvglog'))
+document.getElementById('tab-alerts').addEventListener('click', () => switchBottomTab('alerts'))
+
+// ── Info panel toggle ─────────────────────────────────────────────────────
+function showInfoPanel() {
+  document.getElementById('main').style.display       = 'none'
+  document.getElementById('info-panel').style.display = 'flex'
+  document.querySelectorAll('.sym-btn').forEach(b => b.classList.remove('active'))
+  document.getElementById('info-btn').classList.add('active')
+}
+function hideInfoPanel() {
+  document.getElementById('main').style.display       = ''
+  document.getElementById('info-panel').style.display = 'none'
+}
+
+document.getElementById('info-btn').addEventListener('click', showInfoPanel)
+
+// ── Symbol selector ───────────────────────────────────────────────────────
+document.querySelectorAll('.sym-btn').forEach(btn => {
+  if (btn.id === 'info-btn') return
+  btn.addEventListener('click', () => {
+    hideInfoPanel()
+    activeSym = btn.dataset.sym
+    document.querySelectorAll('.sym-btn').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+    renderAll()
+  })
+})
+
+// ── WebSocket ─────────────────────────────────────────────────────────────
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  const ws  = new WebSocket(`${proto}://${location.host}/ws`)
+  const dot = document.getElementById('conn-dot')
+  const lbl = document.getElementById('conn-label')
+
+  ws.onopen = () => {
+    dot.className = 'live'
+    lbl.textContent = 'LIVE'
+  }
+
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data)
+
+    if (msg.type === 'loading') {
+      const pct = Math.round((msg.progress || 0) * 100)
+      document.getElementById('loading-bar').style.width = pct + '%'
+      document.getElementById('loading-msg').textContent =
+        (msg.msg || 'LOADING...').toUpperCase()
+      return
+    }
+
+    if (msg.type === 'update') {
+      // Bootstrap TF list and tabs once
+      if (!serverTfs.length && msg.timeframes?.length) {
+        serverTfs = msg.timeframes
+        buildTfTabs()
+        // Default to 15m if available
+        if (serverTfs.includes('15m')) activeTf = '15m'
+      }
+
+      serverPrices = msg.prices  || {}
+      serverState  = msg.state   || {}
+
+      processAlerts(msg.alerts || {})
+      document.getElementById('loading').style.display = 'none'
+      renderAll()
+    }
+  }
+
+  ws.onclose = () => {
+    dot.className = ''
+    lbl.textContent = 'OFFLINE'
+    setTimeout(connect, 3000)
+  }
+  ws.onerror = () => ws.close()
+}
+
+// Init chart then connect
+initChart()
+connect()
+</script>
+</body>
+</html>
