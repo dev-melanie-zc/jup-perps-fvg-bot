@@ -1,100 +1,113 @@
-# jupiter Perps FVG Bot
+# Jupiter Perps FVG Bot
 
-FVG trading bot for Jupiter Perps on Solana. It watches SOL, ETH, and wBTC for Fair Value Gap setups, emails you when something looks good, and can place the trades on-chain by itself if you want it to.
-
----
-
-## what it actually does
-
-it runs 24/7 and scans for Fair Value Gaps and price imbalances left behind when the market moves too fast. When price comes back to fill one of those gaps it's usually a good trade. That's the whole strategy.
-
-- Pulls live candle data from Birdeye (same source as jup.ag/perps) across 15m, 4h, 6h, 8h, and 12h timeframes
-- Detects bull and bear FVG zones on SOL, ETH, and wBTC
-- When price enters a zone, it sends the setup to Claude (AI) which decides long, short, or skip based on zone quality and market context
-- If auto-trade is on, it signs and submits the transaction on-chain through Jupiter Perps
-- Emails you every signal — whether it trades or not
-- Has a web dashboard to watch zones in real time and tweak settings without touching any files
+FVG trading bot for Jupiter Perps on Solana. Watches SOL, ETH and wBTC for Fair Value Gap setups, fires email alerts, and can place trades on-chain automatically.
 
 ---
 
-## How the AI part works
+## Strategy
 
-When price hits a zone, the bot builds a prompt with the zone info and sends it to anthropic Haiku. anthropic replies with a JSON decision - LONG, SHORT, or WAIT - along with a confidence level. The bot only auto-trades HIGH confidence signals. The entry, stop, and target are calculated by Python (1% stop, 2% target from zone midpoint) so Claude can't mess up the math.
+Trades Fair Value Gaps - price imbalances left behind when the market moves too fast. When price comes back to fill the gap, the bot enters at the zone midpoint with a fixed 1% stop loss and 2% take profit (2:1 R:R). Entry and exit levels are calculated by the bot, not the AI Agent.
+
+Setups are filtered by an AI agent (Anthropic) that looks at zone quality and market context before deciding LONG, SHORT, or WAIT. Only HIGH confidence signals trigger auto-trades.
 
 ---
 
-## What you need
+## Backtest results - SOL 15m, February 2025
 
-Three API keys:
+**This is a personal project. These are real backtest numbers on one month of data. Do not run this with money you can't afford to lose.**
 
 ```
-ANTHROPIC_API_KEY    — Claude makes the trade decisions
-BIRDEYE_API_KEY      — pulls candle data for all three pairs
-SOLANA_PRIVATE_KEY   — signs transactions on-chain (keep this safe)
+Trades:    157
+Wins:       59
+Losses:     98
+Win rate:  37.6%  (breakeven at 2:1 R:R is 33.3%)
+Net PnL:  +$40 on $100 collateral at 2x leverage
+Max drawdown: $34
 ```
 
-Set these as environment variables. Never put them in the code or commit them.
+SOL dropped 41% that month ($232 to $136). The short entries caught the move late in the month which is what kept it green. One good month of data is not a reason to run this live.
 
-For email alerts you'll also need a Gmail account with an app password enabled (Google account → Security → 2-Step Verification → App passwords). You set that up through the web UI after deploying, not in the code.
+Full trade log in [BACKTEST.md](BACKTEST.md).
 
 ---
 
-## Running it
+## Overview
+
+Scans for FVG zones across multiple timeframes 24/7. When price enters a zone the setup goes to the AI agent. If auto-trade is on and the signal is HIGH confidence it submits the order on-chain through Jupiter Perps.
+
+Candle data comes from Birdeye (same source as jup.ag/perps).
+
+---
+
+## Features
+
+- FVG detection across 15m, 4h, 6h, 8h and 12h timeframes
+- SOL, ETH and wBTC support
+- AI agent (Anthropic) analyzes each setup
+- On-chain trade execution via Jupiter Perps
+- Email alerts on every signal
+- Web dashboard with live zone charts
+- Full risk management - position limits, daily loss caps, cooldowns
+- All settings configurable from the UI
+
+---
+
+## Requirements
+
+- Python 3.10+
+- Anthropic API key
+- Birdeye API key
+- Solana wallet private key (for trade execution)
+- Gmail account with an app password (for alerts)
+
+---
+
+## Setup
+
+Set your environment variables:
+
+```
+ANTHROPIC_API_KEY=...
+BIRDEYE_API_KEY=...
+SOLANA_PRIVATE_KEY=...
+```
+
+Install dependencies and run:
 
 ```bash
 pip install -r requirements.txt
 python server.py
 ```
 
-Then open the web UI in your browser, go to CONFIG, and fill in your wallet address, email settings, and trading limits. Hit save. That's it.
-
-The server handles everything — FVG detection, AI analysis, trade execution, and email alerts all run automatically in the background.
+Open the web UI, go to CONFIG, enter your wallet address and email settings, hit save.
 
 ---
 
-## Web UI
+## Risk management
 
-There's a dashboard at whatever port the server runs on. It shows:
+Configurable from the web UI:
 
-- Live FVG zones for each pair and timeframe
-- Which zones price is currently inside or approaching
-- Open positions and pending orders
-- A config panel where you can change every setting without restarting
-
----
-
-## Risk controls
-
-The bot has a bunch of built-in limits you can set from the UI:
-
-- Max position size and leverage per pair
-- Daily loss limit per pair and overall
-- Max number of open positions at once
-- Cooldown period after opening or closing a trade
+- Per-pair position size and leverage
+- Per-pair daily loss limit
+- Total daily loss limit
+- Max concurrent open positions
+- Post-open and post-close cooldown timers
 - One trade per symbol at a time
 
-Auto-trade is off by default. You have to explicitly turn it on.
-
----
-
-## Backtest — SOL 15m, February 2025
-
-157 trades, 59 wins, 98 losses. Net +$40 on $100 collateral at 2x leverage. Win rate 37.6% with a 2:1 R:R (1% stop, 2% target).
-
-SOL dropped hard that month ($232 down to $136) so there were a lot of losing longs early on, but the short entries caught the move and kept it green overall. Full trade log in [BACKTEST.md](BACKTEST.md).
+Auto-trade is off by default.
 
 ---
 
 ## Files
 
 ```
-server.py          — main server, web UI, websocket, trade loop
-agent.py           — Claude AI analysis
-trading.py         — risk engine, position tracking
-jup_perps_exec.py  — on-chain transaction builder for Jupiter Perps
-jup_perps_alerts.py — standalone email alert script (runs separately)
-market_data.py     — order book and trade flow data
-backtest.py        — backtest the FVG strategy on historical data
-static/index.html  — the web dashboard
-config.json        — your settings (gitignored, never pushed)
+server.py           - web server, websocket, main loop
+agent.py            - Anthropic AI analysis
+trading.py          - risk engine and position tracking
+jup_perps_exec.py   - Jupiter Perps on-chain transaction builder
+jup_perps_alerts.py - standalone email alert script
+market_data.py      - order book and trade flow
+backtest.py         - historical strategy backtester
+static/index.html   - web dashboard
+config.json         - local settings (gitignored)
 ```
