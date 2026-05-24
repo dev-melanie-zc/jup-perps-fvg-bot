@@ -2,11 +2,14 @@
 
 FVG trading bot for Jupiter Perps on Solana. Watches SOL, ETH and wBTC for Fair Value Gap setups, fires email alerts, and can place trades on-chain automatically.
 
+![dashboard](https://github.com/user-attachments/assets/e11e58fb-2372-4e61-8f8b-e02fbef2b19c)
+![config](https://github.com/user-attachments/assets/598520b7-dfc4-41da-8887-569f8ff0a15a)
+
 ---
 
 ## Strategy
 
-Trades Fair Value Gaps - price imbalances left behind when the market moves too fast. When price comes back to fill the gap, the bot enters at the zone midpoint with a fixed 1% stop loss and 2% take profit (2:1 R:R). Entry and exit levels are calculated by the bot, not the AI Agent.
+Trades Fair Value Gaps - price imbalances left behind when the market moves too fast. When price comes back to fill the gap, the bot enters at the zone midpoint with a fixed 1% stop loss and 2% take profit (2:1 R:R). Entry and exit levels are calculated by the bot, not the AI.
 
 Setups are filtered by an AI agent (Anthropic) that looks at zone quality and market context before deciding LONG, SHORT, or WAIT. Only HIGH confidence signals trigger auto-trades.
 
@@ -111,3 +114,5 @@ backtest.py         - historical strategy backtester
 static/index.html   - web dashboard
 config.json         - local settings (gitignored)
 ```
+
+
