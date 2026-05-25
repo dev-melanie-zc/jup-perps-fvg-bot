@@ -489,7 +489,7 @@ async def _do_broadcast(data: str):
 
 def run_agent():
     global ai_rec
-    print("AI agent: fetching Binance market data…")
+    print("Bot: fetching market data…")
     cfg    = trading.load_config()
     sync   = trading.reconcile_positions(cfg)
     if sync.get("synced"):
@@ -505,7 +505,7 @@ def run_agent():
         action = result.get("action", "?")
         sym    = result.get("symbol") or ""
         conf   = result.get("confidence", "")
-        print(f"AI → {action} {sym} [{conf}]")
+        print(f"Bot → {action} {sym} [{conf}]")
 
         # Email alert for any actionable AI signal (approaching or inside zone)
         if action in ("LONG", "SHORT") and sym:

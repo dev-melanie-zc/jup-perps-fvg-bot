@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """
-AI agent — proximity-filtered FVG analysis with precise entries.
+Rule-based FVG bot — proximity-filtered zone analysis with precise entries.
 
 Flow:
   1. Classify all open zones by distance to current price
-  2. Skip Claude entirely if nothing is within MAX_DIST_PCT
-  3. Otherwise build context (Birdeye zones + Binance market data) and call Claude
-  4. Python computes stop/target/R:R from zone math (not Claude)
-  5. Log every analysis to analysis_log.jsonl
+  2. Skip if nothing is within MAX_DIST_PCT
+  3. Pick the best zone (inside > approaching > watching, then highest TF weight)
+  4. Signal LONG (bull FVG) or SHORT (bear FVG) based on zone type
+  5. Python computes stop/target/R:R from zone math
+  6. Log every analysis to analysis_log.jsonl
 """
 
-import os, json
+import json
 from datetime import datetime
-import anthropic
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-LOG_FILE    = "analysis_log.jsonl"
+LOG_FILE     = "analysis_log.jsonl"
 MAX_DIST_PCT = 3.0    # ignore zones further than this % from price
 _TF_WEIGHT   = {"12h": 4, "4h": 3, "1h": 2, "15m": 1}
 TAKE_PROFIT_PCT = 0.02
@@ -45,7 +44,7 @@ def _classify_zones(state: dict, prices: dict, symbols: list, timeframes: list) 
                 if z.get("filled"):
                     continue
                 if z["low"] <= price <= z["high"]:
-                    dist_pct   = 0.0
+                    dist_pct    = 0.0
                     zone_status = "INSIDE"
                     bucket      = "inside"
                 else:
@@ -73,7 +72,7 @@ def _classify_zones(state: dict, prices: dict, symbols: list, timeframes: list) 
     return buckets
 
 
-# ── Stop / target math (Python, not Claude) ──────────────────────────────────
+# ── Stop / target math ────────────────────────────────────────────────────────
 
 def _compute_exits(action: str, zone_low: float, zone_high: float) -> dict:
     """
@@ -83,7 +82,7 @@ def _compute_exits(action: str, zone_low: float, zone_high: float) -> dict:
     """
     if action not in ("LONG", "SHORT"):
         return {}
-    mid  = (zone_low + zone_high) / 2
+    mid = (zone_low + zone_high) / 2
 
     if action == "LONG":
         entry  = mid
@@ -106,7 +105,7 @@ def _compute_exits(action: str, zone_low: float, zone_high: float) -> dict:
     }
 
 
-# ── Context builders ──────────────────────────────────────────────────────────
+# ── Zone context string (for logging) ─────────────────────────────────────────
 
 def _zone_ctx(buckets: dict, prices: dict) -> str:
     lines = []
@@ -120,7 +119,6 @@ def _zone_ctx(buckets: dict, prices: dict) -> str:
         lines.append(f"\n{header}")
         for z in zones:
             sym   = z["sym"]
-            price = prices.get(sym, 0)
             tag   = "▲ BULL" if z["type"] == "bull" else "▼ BEAR"
             exits = _compute_exits(
                 "LONG" if z["type"] == "bull" else "SHORT",
@@ -139,48 +137,22 @@ def _zone_ctx(buckets: dict, prices: dict) -> str:
     return "\n".join(lines) if lines else "  (none)"
 
 
-def _market_ctx(mkt: dict, symbols: list, timeframes: list) -> str:
-    if not mkt:
-        return "  (no Binance data)"
-    lines = []
-    sorted_tfs = sorted(timeframes, key=lambda t: _TF_WEIGHT.get(t, 0), reverse=True)
-    for sym in symbols:
-        d = mkt.get(sym, {})
-        if not d:
+# ── Rule-based zone picker ────────────────────────────────────────────────────
+
+def _pick_best_zone(buckets: dict) -> dict | None:
+    """
+    Priority: inside > approaching > watching.
+    Within a bucket, pick the highest-TF zone (then first found).
+    Returns the zone dict or None.
+    """
+    for bucket in ("inside", "approaching", "watching"):
+        zones = buckets[bucket]
+        if not zones:
             continue
-        lines.append(f"\n{sym}")
-        ob = d.get("order_book", {})
-        if ob:
-            lines.append(
-                f"  Book: {ob.get('pressure')}  ratio {ob.get('ratio')}  "
-                f"spread {ob.get('spread_pct')}%  "
-                f"bid wall {ob.get('top_bid_price')} ({ob.get('top_bid_qty')} units)  "
-                f"ask wall {ob.get('top_ask_price')} ({ob.get('top_ask_qty')} units)"
-            )
-        tf_ = d.get("trade_flow", {})
-        if tf_:
-            lines.append(
-                f"  Flow: {tf_.get('buy_pct')}% buys / {tf_.get('sell_pct')}% sells  "
-                f"→ {tf_.get('bias')}  "
-                f"large: {tf_.get('large_buys')} buys vs {tf_.get('large_sells')} sells"
-            )
-        s24 = d.get("stats_24h", {})
-        if s24:
-            lines.append(
-                f"  24h: {s24.get('change_pct'):+}%  vol ${s24.get('volume_usd',0):,.0f}"
-            )
-        vol = d.get("volume_by_tf", {})
-        if vol:
-            vlines = []
-            for tf in sorted_tfs:
-                v = vol.get(tf)
-                if v:
-                    vlines.append(
-                        f"{tf.upper()} {v['label']} {v['ratio']}x ({v['dv_bias']})"
-                    )
-            if vlines:
-                lines.append(f"  Vol: {' | '.join(vlines)}")
-    return "\n".join(lines)
+        # Sort by TF weight descending, then dist_pct ascending
+        best = sorted(zones, key=lambda z: (-_TF_WEIGHT.get(z["tf"], 0), z["dist_pct"]))
+        return best[0]
+    return None
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -210,6 +182,7 @@ def analyze(state: dict, prices: dict, symbols: list,
     total_in_range = sum(len(v) for v in buckets.values())
     slot_status = slot_status or {}
 
+    # Trade slot full — skip all signals
     if slot_status.get("full") and slot_status.get("ignore_signals_when_full", True):
         result = {
             "action": "WAIT", "symbol": None, "timeframe": None,
@@ -224,6 +197,7 @@ def analyze(state: dict, prices: dict, symbols: list,
         _log(result)
         return result
 
+    # No zones in range
     if total_in_range == 0:
         result = {
             "action": "WAIT", "symbol": None, "timeframe": None,
@@ -235,98 +209,49 @@ def analyze(state: dict, prices: dict, symbols: list,
         _log(result)
         return result
 
-    if not ANTHROPIC_API_KEY:
-        return None
-
-    zone_ctx = _zone_ctx(buckets, prices)
-    mkt_ctx  = _market_ctx(mkt, symbols, timeframes)
-    slot_ctx = (
-        f"Open positions: {slot_status.get('open_count', 0)} / "
-        f"{slot_status.get('max_concurrent_positions', 1)} | "
-        f"Pending orders: {slot_status.get('pending_count', 0)} / "
-        f"{slot_status.get('max_pending_orders', 1)} | "
-        f"Slots available: {slot_status.get('slots_available', 0)} | "
-        f"Status: {slot_status.get('reason', 'trade slot available')}"
-    )
-
-    prompt = f"""You are an ICT/SMC analyst for Jupiter Perps (Solana on-chain perpetuals).
-Only zones within {MAX_DIST_PCT}% of current price are shown. All entry/stop/target levels are pre-calculated.
-
-════ TRADE CAPACITY RULE ════
-{slot_ctx}
-
-You must honor trade capacity before market analysis:
-  - If slots available is 0, reply WAIT.
-  - If pending orders are at the limit, reply WAIT.
-  - Do not recommend a new LONG or SHORT while the bot has no trade slot.
-  - A full trade slot means all new signals are ignored until a trade closes or a pending order clears.
-
-════ FVG ZONES IN RANGE ════
-{zone_ctx}
-
-════ BINANCE MARKET DATA (directional bias) ════
-{mkt_ctx}
-
-════ DECISION RULES ════
-Priority order:
-  1. INSIDE zones — price is live in the zone right now — highest priority
-  2. APPROACHING (<1%) — price almost there, good to alert
-  3. WATCHING (1-3%) — monitor, not yet actionable
-
-Confirm with market data:
-  - Bull FVG + BULLISH order book + BUY flow + bullish volume = HIGH confidence LONG
-  - Bear FVG + BEARISH order book + SELL flow + bearish volume = HIGH confidence SHORT
-  - Conflicting signals = MEDIUM or LOW confidence
-  - If multiple zones qualify, pick the highest timeframe + best market data alignment
-
-Exit levels are fixed by Python after your reply: take profit = 2% from entry, stop loss = 1% from entry.
-
-Reply with ONLY one compact JSON line, no newlines inside, no markdown:
-{{"action":"LONG","symbol":"SOL","timeframe":"4h","zone_status":"INSIDE","zone_low":85.5,"zone_high":86.2,"entry_price":85.85,"stop_loss":84.9915,"target":87.567,"rr":"2.0:1","reasoning":"One or two sentences max.","confluence":"brief or none","confidence":"HIGH"}}
-
-action: LONG / SHORT / WAIT — confidence: HIGH / MEDIUM / LOW"""
-
-    try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = msg.content[0].text.strip()
-        if "```" in text:
-            parts = text.split("```")
-            text  = parts[1] if len(parts) > 1 else parts[0]
-            if text.lower().startswith("json"):
-                text = text[4:]
-        text  = text.strip()
-        start = text.find("{")
-        end   = text.rfind("}") + 1
-        if start != -1 and end > start:
-            text = text[start:end]
-        result = json.loads(text)
-
-        # Recompute exits from zone math — don't trust Claude's arithmetic
-        if result.get("action") in ("LONG", "SHORT") and result.get("zone_low") and result.get("zone_high"):
-            exits = _compute_exits(result["action"], result["zone_low"], result["zone_high"])
-            result.update(exits)
-
-        result["zones_in_range"] = total_in_range
-        result["trade_slot_full"] = bool(slot_status.get("full"))
-        _log(result)
-        return result
-
-    except json.JSONDecodeError as e:
-        print(f"Agent JSON error: {e}")
+    # Pick the best zone by rule
+    zone = _pick_best_zone(buckets)
+    if zone is None:
         result = {
             "action": "WAIT", "symbol": None, "timeframe": None,
             "zone_status": None, "zone_low": None, "zone_high": None,
             "entry_price": None, "stop_loss": None, "target": None, "rr": None,
-            "reasoning": "Malformed response from model.", "confluence": "none",
-            "confidence": "LOW", "zones_in_range": total_in_range,
+            "reasoning": "No actionable zone found.",
+            "confluence": "none", "confidence": "LOW", "zones_in_range": total_in_range,
         }
         _log(result)
         return result
-    except Exception as e:
-        print(f"Agent error: {e}")
-        return None
+
+    action = "LONG" if zone["type"] == "bull" else "SHORT"
+    exits  = _compute_exits(action, zone["low"], zone["high"])
+
+    # Confidence by zone status
+    confidence_map = {"INSIDE": "HIGH", "APPROACHING": "MEDIUM", "WATCHING": "LOW"}
+    confidence = confidence_map.get(zone["zone_status"], "LOW")
+
+    reasoning = (
+        f"{zone['zone_status']} {zone['type'].upper()} FVG on {zone['sym']} "
+        f"{zone['tf'].upper()} ({zone['low']} – {zone['high']}), "
+        f"{zone['dist_pct']}% from price. "
+        f"Rule-based entry: {action} at zone midpoint."
+    )
+
+    result = {
+        "action":      action,
+        "symbol":      zone["sym"],
+        "timeframe":   zone["tf"],
+        "zone_status": zone["zone_status"],
+        "zone_low":    zone["low"],
+        "zone_high":   zone["high"],
+        "entry_price": exits.get("entry_price"),
+        "stop_loss":   exits.get("stop_loss"),
+        "target":      exits.get("target"),
+        "rr":          exits.get("rr"),
+        "reasoning":   reasoning,
+        "confluence":  f"{zone['tf']} FVG {zone['zone_status'].lower()}",
+        "confidence":  confidence,
+        "zones_in_range":   total_in_range,
+        "trade_slot_full":  bool(slot_status.get("full")),
+    }
+    _log(result)
+    return result
